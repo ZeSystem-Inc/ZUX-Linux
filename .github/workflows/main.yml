@@ -1,4 +1,4 @@
-name: Build ZUX OS ISO
+name: ZUX OS ISO and Release Build
 
 on:
   push:
@@ -8,67 +8,32 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container:
-      image: debian:bookworm
 
     steps:
-      - name: Depoyu Klonla
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Gerekli Paketleri Yükle
+      - name: Install Dependencies
         run: |
-          apt update
-          apt install -y \
-            build-essential flex bison bc libelf-dev libssl-dev \
-            xorriso mtools dosfstools cpio gzip wget tar syslinux-utils \
-            grub-pc-bin grub-efi-amd64-bin grub-efi-ia32-bin \
-            busybox zip ccache gcc libc6-dev
+          sudo apt-get update
+          sudo apt-get install -y gcc make cpio xorriso grub-pc-bin grub-common zip wget
 
-      - name: Kernel Kaynak Kodu ve Önbellek (Cache)
-        uses: actions/cache@v4
-        with:
-          path: |
-            src/linux
-            ~/.cache/ccache
-          key: ${{ runner.os }}-zux-kernel-6.6.21-v5
-          restore-keys: |
-            ${{ runner.os }}-zux-kernel-6.6.21-
-
-      - name: Saf Linux Çekirdeği Kaynağını İndir
+      - name: Create Workspace Directories
         run: |
-          if [ ! -d "src/linux" ]; then
-            mkdir -p src
-            wget https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.6.21.tar.xz
-            tar -xf linux-6.6.21.tar.xz -C src/
-            mv src/linux-6.6.21 src/linux
-          fi
+          mkdir -p build_dir/iso_root/boot/grub
+          mkdir -p build_dir/initrd_root/installer
+          mkdir -p build_dir/release_assets
 
-      - name: Saf Kernel Konfigürasyonunu Yap ve Derle
+      - name: Compile Setup Installer
         run: |
-          cd src/linux
-          if [ ! -f ".config" ]; then
-            make defconfig
-            scripts/config --enable CONFIG_DEVTMPFS
-            scripts/config --enable CONFIG_DEVTMPFS_MOUNT
-            scripts/config --enable CONFIG_BLK_DEV_SD
-            scripts/config --enable CONFIG_EXT4_FS
-            scripts/config --enable CONFIG_FB
-            scripts/config --enable CONFIG_FB_EFI
-            scripts/config --enable CONFIG_FB_VESA
-            scripts/config --enable CONFIG_DRM
-            scripts/config --enable CONFIG_DRM_FBDEV_EMULATION
-            scripts/config --enable CONFIG_FRAMEBUFFER_CONSOLE
-          fi
-          make -j$(nproc) CC="ccache gcc" bzImage
-          cd ../..
+          gcc -O2 setup.c -o build_dir/initrd_root/installer/setup.elf
 
-      - name: Artifact 1 - ZUX.zip Paketini Oluştur
+      - name: Prepare RootFS and Pack ZUX.zip
         run: |
           WORKSPACE_DIR=$(pwd)
-          UPLOAD_DIR="${WORKSPACE_DIR}/server_upload"
-          mkdir -p "${UPLOAD_DIR}"
+          UPLOAD_DIR="${WORKSPACE_DIR}/build_dir/release_assets"
 
-          if [ -d "rootfs" ]; then
+          if [ -d "rootfs" ] && [ "$(ls -A rootfs)" ]; then
             cd rootfs
             zip -r "${UPLOAD_DIR}/ZUX.zip" .
             cd "${WORKSPACE_DIR}"
@@ -82,68 +47,53 @@ jobs:
             rm -rf "${DUMMY_DIR}"
           fi
 
-      - name: setup.elf Dosyasını Statik Derle (WinPE Style)
+      - name: Pack Initrd Payload
         run: |
-          mkdir -p initrd_root/installer
-          gcc -static -O2 setup.c -o initrd_root/installer/setup.elf
-          chmod +x initrd_root/installer/setup.elf
+          cp initrd_root/init build_dir/initrd_root/init
+          chmod +x build_dir/initrd_root/init
+          chmod +x build_dir/initrd_root/installer/setup.elf
 
-      - name: init Çalıştırılabilir İzinlerini Ayarla
+          cd build_dir/initrd_root
+          find . -print0 | cpio --null -ov --format=newc | gzip -9 > ../iso_root/boot/initrd.img
+          cd ../..
+
+      - name: Download Linux Kernel
         run: |
-          chmod +x initrd_root/init || true
+          wget -q https://cdn.kernel.org/pub/linux/kernel/v6.x/vmlinuz-6.1.0-21-amd64 -O build_dir/iso_root/boot/vmlinuz || \
+          wget -q https://boot.netboot.xyz/memdisk -O build_dir/iso_root/boot/vmlinuz
 
-      - name: Artifact 2 - ZUX-netinst.iso İmajını Oluştur
+      - name: Configure GRUB Menu
         run: |
-          WORKSPACE_DIR=$(pwd)
-          UPLOAD_DIR="${WORKSPACE_DIR}/server_upload"
-          mkdir -p iso_root/boot/grub
-
-          cp src/linux/arch/x86/boot/bzImage iso_root/boot/vmlinuz
-
-          mkdir -p initrd_root/bin
-          cp /bin/busybox initrd_root/bin/busybox
-          chmod +x initrd_root/bin/busybox
-          initrd_root/bin/busybox --install -s initrd_root/bin
-
-          cd initrd_root
-          find . | cpio -o -H newc | gzip -9 > ../iso_root/boot/initrd.img
-          cd "${WORKSPACE_DIR}"
-
-          cat << 'EOF' > iso_root/boot/grub/grub.cfg
+          cat << 'EOF' > build_dir/iso_root/boot/grub/grub.cfg
           set default=0
-          set timeout=5
+          set timeout=3
 
-          insmod part_msdos
-          insmod part_gpt
-          insmod ext2
-          insmod all_video
-          insmod video_bochs
-          insmod video_cirrus
-          insmod gfxterm
-
-          set gfxmode=auto
-          set gfxpayload=keep
-          terminal_output gfxterm
-
-          menuentry "ZUX OS Kurulum Ortami (WinPE Style)" {
-              linux /boot/vmlinuz quiet console=tty1
+          menuentry "ZUX OS Installer" {
+              linux /boot/vmlinuz quiet
               initrd /boot/initrd.img
           }
           EOF
 
-          grub-mkrescue -o "${UPLOAD_DIR}/ZUX-netinst.iso" iso_root/ -- -volid "ZUX_NETINST"
-          isohybrid --uefi "${UPLOAD_DIR}/ZUX-netinst.iso" || true
+      - name: Generate Installer ISO
+        run: |
+          grub-mkrescue -o build_dir/release_assets/ZUX-Installer.iso build_dir/iso_root
 
-      - name: Artifact 1'i Yükle (ZUX.zip)
+      - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ZUX-Main-OS-Zip
-          path: server_upload/ZUX.zip
-          retention-days: 7
+          name: ZUX-Build-Assets
+          path: build_dir/release_assets/*
 
-      - name: Artifact 2'yi Yükle (ZUX-Netinst-ISO)
-        uses: actions/upload-artifact@v4
+      - name: Publish Release 1.0 Assets
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        uses: softprops/action-gh-release@v2
         with:
-          name: ZUX-Netinst-ISO
-          path: server_upload/ZUX-netinst.iso
-          retention-days: 7
+          tag_name: "1.0"
+          name: "ZUX OS Release 1.0"
+          draft: false
+          prerelease: false
+          files: |
+            build_dir/release_assets/ZUX.zip
+            build_dir/release_assets/ZUX-Installer.iso
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
