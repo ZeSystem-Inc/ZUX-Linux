@@ -1,20 +1,31 @@
-#!/bin/bin/sh
+#!/bin/sh
 export PATH=/bin:/sbin:/usr/bin:/usr/sbin
 
 mount -t proc proc /proc
 mount -t sysfs sysfs /sys
 mount -t devtmpfs devtmpfs /dev
+mkdir -p /dev/pts
+mount -t devpts devpts /dev/pts
 
 ifconfig lo 127.0.0.1 up
 udhcpc -i eth0 >/dev/null 2>&1 || udhcpc -i enp0s3 >/dev/null 2>&1 || true
 
+exec 0</dev/tty1
+exec 1>/dev/tty1
+exec 2>/dev/tty1
+
 clear
 
 if [ -f /installer/setup.elf ]; then
+    echo "ZUX OS Kurulum Ortamı Başlatılıyor..."
+    chmod +x /installer/setup.elf
     /installer/setup.elf
 else
-    echo "HATA: /installer/setup.elf bulunamadi!"
+    echo "HATA: Kurulum dosyası (/installer/setup.elf) bulunamadı!"
+    echo "Kurtarma kabuğu başlatılıyor..."
     exec /bin/sh
 fi
 
+echo ""
+echo "Kurulum tamamlandı veya kapatıldı. Sistemi yeniden başlatmak için reboot yazın."
 exec /bin/sh
