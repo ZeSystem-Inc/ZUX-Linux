@@ -1,0 +1,105 @@
+name: ZUX Linux ISO & OS Package CI/CD
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  build-zux:
+    runs-on: ubuntu-latest
+    container:
+      image: debian:bookworm
+
+    steps:
+      - name: Depodaki Dosyaları Çek
+        uses: actions/checkout@v4
+
+      - name: Derleme Araçlarını ve Bağımlılıkları Yükle
+        run: |
+          apt update
+          apt install -y \
+            build-essential flex bison bc libelf-dev libssl-dev \
+            xorriso mtools dosfstools cpio gzip wget tar syslinux-utils \
+            grub-pc-bin grub-efi-amd64-bin grub-efi-ia32-bin \
+            busybox zip ccache python3 python3-pip
+
+      - name: Kernel Kaynak Kodu ve Derleme Önbelleği (Cache)
+        uses: actions/cache@v4
+        with:
+          path: |
+            src/linux
+            ~/.cache/ccache
+          key: ${{ runner.os }}-zux-kernel-6.6.21-v2
+          restore-keys: |
+            ${{ runner.os }}-zux-kernel-6.6.21-
+
+      - name: Saf Linux Çekirdeği Kaynağını İndir
+        run: |
+          if [ ! -d "src/linux" ]; then
+            mkdir -p src
+            wget https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.6.21.tar.xz
+            tar -xf linux-6.6.21.tar.xz -C src/
+            mv src/linux-6.6.21 src/linux
+          fi
+
+      - name: Saf Kernel Konfigürasyonunu Yap ve Önbellekli Derle
+        run: |
+          cd src/linux
+          if [ ! -f ".config" ]; then
+            make defconfig
+            scripts/config --enable CONFIG_DEVTMPFS
+            scripts/config --enable CONFIG_DEVTMPFS_MOUNT
+            scripts/config --enable CONFIG_BLK_DEV_SD
+            scripts/config --enable CONFIG_EXT4_FS
+          fi
+          make -j$(nproc) CC="ccache gcc" bzImage
+          cd ../..
+
+      - name: Artifact 1 - ZUX.zip Paketini Oluştur
+        run: |
+          mkdir -p server_upload
+          if [ -d "rootfs" ]; then
+            cd rootfs && zip -r ../server_upload/ZUX.zip . && cd ..
+          else
+            mkdir -p /tmp/dummy_rootfs/bin /tmp/dummy_rootfs/etc
+            echo "ZUX OS Rootfs" > /tmp/dummy_rootfs/etc/zux-release
+            cd /tmp/dummy_rootfs && zip -r ${{ github.workspace }}/server_upload/ZUX.zip . && cd ${{ github.workspace }}
+          fi
+
+      - name: Artifact 2 - ZUX-netinst.iso İmajını Oluştur
+        run: |
+          mkdir -p iso_root/boot/grub
+          cp src/linux/arch/x86/boot/bzImage iso_root/boot/vmlinuz
+
+          mkdir -p initrd_root/bin
+          cp /bin/busybox initrd_root/bin/busybox
+          chmod +x initrd_root/bin/busybox
+          initrd_root/bin/busybox --install -s initrd_root/bin
+
+          chmod +x initrd_root/init || true
+          chmod +x initrd_root/installer/setup.sh || true
+          chmod +x initrd_root/installer/zux-installer.py || true
+
+          cd initrd_root
+          find . | cpio -o -H newc | gzip -9 > ../iso_root/boot/initrd.img
+          cd ..
+
+          grub-mkrescue -o server_upload/ZUX-netinst.iso iso_root/ -- -volid "ZUX_NETINST"
+          isohybrid --uefi server_upload/ZUX-netinst.iso || true
+
+      - name: Artifact 1'i Yükle (ZUX.zip)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZUX-Main-OS-Zip
+          path: server_upload/ZUX.zip
+          retention-days: 7
+
+      - name: Artifact 2'yi Yükle (ZUX-netinst.iso)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZUX-Netinst-ISO
+          path: server_upload/ZUX-netinst.iso
+          retention-days: 7
