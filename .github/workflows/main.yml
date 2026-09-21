@@ -60,17 +60,29 @@ jobs:
 
       - name: Artifact 1 - ZUX.zip Paketini Oluştur
         run: |
-          mkdir -p server_upload
+          WORKSPACE_DIR=$(pwd)
+          UPLOAD_DIR="${WORKSPACE_DIR}/server_upload"
+          
+          mkdir -p "${UPLOAD_DIR}"
+
           if [ -d "rootfs" ]; then
-            cd rootfs && zip -r ../server_upload/ZUX.zip . && cd ..
+            cd rootfs
+            zip -r "${UPLOAD_DIR}/ZUX.zip" .
+            cd "${WORKSPACE_DIR}"
           else
-            mkdir -p /tmp/dummy_rootfs/bin /tmp/dummy_rootfs/etc
-            echo "ZUX OS Rootfs" > /tmp/dummy_rootfs/etc/zux-release
-            cd /tmp/dummy_rootfs && zip -r ${{ github.workspace }}/server_upload/ZUX.zip . && cd ${{ github.workspace }}
+            DUMMY_DIR="${WORKSPACE_DIR}/tmp_rootfs"
+            mkdir -p "${DUMMY_DIR}/etc" "${DUMMY_DIR}/bin"
+            echo "ZUX OS Rootfs" > "${DUMMY_DIR}/etc/zux-release"
+            cd "${DUMMY_DIR}"
+            zip -r "${UPLOAD_DIR}/ZUX.zip" .
+            cd "${WORKSPACE_DIR}"
+            rm -rf "${DUMMY_DIR}"
           fi
 
       - name: Artifact 2 - ZUX-netinst.iso İmajını Oluştur
         run: |
+          WORKSPACE_DIR=$(pwd)
+          UPLOAD_DIR="${WORKSPACE_DIR}/server_upload"
           mkdir -p iso_root/boot/grub
           cp src/linux/arch/x86/boot/bzImage iso_root/boot/vmlinuz
 
@@ -85,10 +97,10 @@ jobs:
 
           cd initrd_root
           find . | cpio -o -H newc | gzip -9 > ../iso_root/boot/initrd.img
-          cd ..
+          cd "${WORKSPACE_DIR}"
 
-          grub-mkrescue -o server_upload/ZUX-netinst.iso iso_root/ -- -volid "ZUX_NETINST"
-          isohybrid --uefi server_upload/ZUX-netinst.iso || true
+          grub-mkrescue -o "${UPLOAD_DIR}/ZUX-netinst.iso" iso_root/ -- -volid "ZUX_NETINST"
+          isohybrid --uefi "${UPLOAD_DIR}/ZUX-netinst.iso" || true
 
       - name: Artifact 1'i Yükle (ZUX.zip)
         uses: actions/upload-artifact@v4
