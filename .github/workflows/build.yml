@@ -2,7 +2,9 @@ name: ZUX Linux ISO Build Pipeline
 
 on:
   push:
-    branches: [ main, master ]
+    branches:
+      - main
+      - master
   workflow_dispatch:
 
 jobs:
@@ -12,92 +14,95 @@ jobs:
       image: debian:bookworm
 
     steps:
-    - name: Depodaki Dosyaları Çek
-      uses: actions/checkout@v4
+      - name: Depodaki Dosyaları Çek
+        uses: actions/checkout@v4
 
-    - name: Derleme ve ISO Paketleme Araçlarını Yükle
-      run: |
-        apt update
-        apt install -y \
-          build-essential flex bison bc libelf-dev libssl-dev \
-          xorriso mtools dosfstools cpio gzip wget tar syslinux-utils \
-          grub-pc-bin grub-efi-amd64-bin grub-efi-ia32-bin
+      - name: Derleme Araçlarını Yükle
+        run: |
+          apt update
+          apt install -y \
+            build-essential flex bison bc libelf-dev libssl-dev \
+            xorriso mtools dosfstools cpio gzip wget tar syslinux-utils \
+            grub-pc-bin grub-efi-amd64-bin grub-efi-ia32-bin \
+            python3 python3-gi gir1.2-gtk-3.0
 
-    - name: Saf Linux Çekirdeği Kaynağını İndir (kernel.org)
-      run: |
-        mkdir -p src
-        wget https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.6.21.tar.xz
-        tar -xf linux-6.6.21.tar.xz -C src/
-        mv src/linux-6.6.21 src/linux
+      - name: Saf Linux Çekirdeği Kaynağını İndir
+        run: |
+          mkdir -p src
+          wget https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.6.21.tar.xz
+          tar -xf linux-6.6.21.tar.xz -C src/
+          mv src/linux-6.6.21 src/linux
 
-    - name: Saf Kernel Konfigürasyonunu Yap
-      run: |
-        make -C src/linux defconfig
-        src/linux/scripts/config --file src/linux/.config --enable CONFIG_CGROUPS
-        src/linux/scripts/config --file src/linux/.config --enable CONFIG_AUTOFS4_FS
-        src/linux/scripts/config --file src/linux/.config --enable CONFIG_SIGNALFD
-        src/linux/scripts/config --file src/linux/.config --enable CONFIG_TIMERFD
-        src/linux/scripts/config --file src/linux/.config --enable CONFIG_EPOLL
-        src/linux/scripts/config --file src/linux/.config --enable CONFIG_DEVTMPFS
-        src/linux/scripts/config --file src/linux/.config --enable CONFIG_DEVTMPFS_MOUNT
-        src/linux/scripts/config --file src/linux/.config --enable CONFIG_NETDEVICES
-        src/linux/scripts/config --file src/linux/.config --enable CONFIG_ETHERNET
-        src/linux/scripts/config --file src/linux/.config --enable CONFIG_EXT4_FS
-        src/linux/scripts/config --file src/linux/.config --enable CONFIG_BLK_DEV_SD
-        src/linux/scripts/config --file src/linux/.config --enable CONFIG_ISO9660_FS
-        src/linux/scripts/config --file src/linux/.config --enable CONFIG_SQUASHFS
+      - name: Saf Kernel Konfigürasyonunu Yap
+        run: |
+          make -C src/linux defconfig
+          src/linux/scripts/config --file src/linux/.config --enable CONFIG_CGROUPS
+          src/linux/scripts/config --file src/linux/.config --enable CONFIG_AUTOFS4_FS
+          src/linux/scripts/config --file src/linux/.config --enable CONFIG_SIGNALFD
+          src/linux/scripts/config --file src/linux/.config --enable CONFIG_TIMERFD
+          src/linux/scripts/config --file src/linux/.config --enable CONFIG_EPOLL
+          src/linux/scripts/config --file src/linux/.config --enable CONFIG_DEVTMPFS
+          src/linux/scripts/config --file src/linux/.config --enable CONFIG_DEVTMPFS_MOUNT
+          src/linux/scripts/config --file src/linux/.config --enable CONFIG_NETDEVICES
+          src/linux/scripts/config --file src/linux/.config --enable CONFIG_ETHERNET
+          src/linux/scripts/config --file src/linux/.config --enable CONFIG_EXT4_FS
+          src/linux/scripts/config --file src/linux/.config --enable CONFIG_BLK_DEV_SD
+          src/linux/scripts/config --file src/linux/.config --enable CONFIG_ISO9660_FS
+          src/linux/scripts/config --file src/linux/.config --enable CONFIG_SQUASHFS
+          src/linux/scripts/config --file src/linux/.config --enable CONFIG_DRM
+          src/linux/scripts/config --file src/linux/.config --enable CONFIG_DRM_FBDEV_EMULATION
 
-    - name: Saf Linux Çekirdeğini Derle
-      run: |
-        make -C src/linux -j$(nproc) bzImage
+      - name: Saf Linux Çekirdeğini Derle
+        run: |
+          make -C src/linux -j$(nproc) bzImage
 
-    - name: ISO Dizin Yapısını, Kurulum Betiklerini ve GRUB'ı Hazırla
-      run: |
-        mkdir -p iso_root/boot/grub
-        cp src/linux/arch/x86/boot/bzImage iso_root/boot/vmlinuz
-        
-        mkdir -p initrd_dir/{bin,sbin,etc,proc,sys,dev,tmp,usr/bin}
-        
-        cp setup.sh initrd_dir/usr/bin/setup.sh
-        cp zux-installer.py initrd_dir/usr/bin/zux-installer.py
-        chmod +x initrd_dir/usr/bin/setup.sh
-        chmod +x initrd_dir/usr/bin/zux-installer.py
-        
-        cat << 'EOF' > initrd_dir/init
-#!/bin/sh
-mount -t proc proc /proc
-mount -t sysfs sysfs /sys
-mount -t devtmpfs devtmpfs /dev
-exec /usr/bin/setup.sh
-EOF
-        chmod +x initrd_dir/init
+      - name: ISO Dizin Yapısını ve GRUB Yapılandırmasını Hazırla
+        run: |
+          mkdir -p iso_root/boot/grub
+          cp src/linux/arch/x86/boot/bzImage iso_root/boot/vmlinuz
 
-        cd initrd_dir && find . | cpio -o -H newc | gzip -9 > ../iso_root/boot/initrd.img
-        cd ..
+          mkdir -p initrd_dir/bin initrd_dir/sbin initrd_dir/etc initrd_dir/proc initrd_dir/sys initrd_dir/dev initrd_dir/tmp initrd_dir/usr/bin
 
-        cat << 'EOF' > iso_root/boot/grub/grub.cfg
-        set timeout=5
-        set default=0
+          cp setup.sh initrd_dir/usr/bin/setup.sh
+          cp zux-installer.py initrd_dir/usr/bin/zux-installer.py
+          chmod +x initrd_dir/usr/bin/setup.sh
+          chmod +x initrd_dir/usr/bin/zux-installer.py
 
-        insmod efi_gop
-        insmod efi_uga
-        insmod all_video
-        insmod font
+          cat << 'EOF' > initrd_dir/init
+          #!/bin/sh
+          mount -t proc proc /proc
+          mount -t sysfs sysfs /sys
+          mount -t devtmpfs devtmpfs /dev
+          exec /usr/bin/setup.sh
+          EOF
+          chmod +x initrd_dir/init
 
-        menuentry "ZUX Linux Netinst (GUI Installer)" {
-            linux /boot/vmlinuz root=/dev/ram0 rw quiet boot=live
-            initrd /boot/initrd.img
-        }
-        EOF
+          cd initrd_dir && find . | cpio -o -H newc | gzip -9 > ../iso_root/boot/initrd.img
+          cd ..
 
-    - name: Triple-Boot ve Hybrid Yüklenebilir ISO Kalıbını Oluştur
-      run: |
-        grub-mkrescue -o ZUX-Linux-netinst.iso iso_root -- -volid "ZUX_NETINST"
-        isohybrid --uefi ZUX-Linux-netinst.iso || true
+          cat << 'EOF' > iso_root/boot/grub/grub.cfg
+          set timeout=5
+          set default=0
 
-    - name: Oluşturulan ISO'yu Yükle
-      uses: actions/upload-artifact@v4
-      with:
-        name: ZUX-Linux-Netinst-ISO
-        path: ZUX-Linux-netinst.iso
-        retention-days: 7
+          insmod efi_gop
+          insmod efi_uga
+          insmod all_video
+          insmod font
+
+          menuentry "ZUX Linux Netinst (GUI Installer)" {
+              linux /boot/vmlinuz root=/dev/ram0 rw quiet boot=live
+              initrd /boot/initrd.img
+          }
+          EOF
+
+      - name: Triple-Boot ve Hybrid Yüklenebilir ISO Kalıbını Oluştur
+        run: |
+          grub-mkrescue -o ZUX-Linux-netinst.iso iso_root -- -volid "ZUX_NETINST"
+          isohybrid --uefi ZUX-Linux-netinst.iso || true
+
+      - name: Oluşturulan ISO Dosyasını Yükle
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZUX-Linux-Netinst-ISO
+          path: ZUX-Linux-netinst.iso
+          retention-days: 7
