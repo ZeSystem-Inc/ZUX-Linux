@@ -61,13 +61,9 @@ def start_installation(disk, desktop_name, desktop_packages):
 
     print("\n[1/4] Disk bölümleniyor ve ext4 biçimlendiriliyor...")
     time.sleep(1)
-    # Gercek kurulum adimlari:
-    # os.system(f"mkfs.ext4 -F {disk}")
-    # os.system(f"mount {disk} /mnt")
 
     print(f"[2/4] ZUX OS Temel Paketleri ve {desktop_name} kuruluyor...")
     time.sleep(2)
-    # os.system(f"apt-get install -y {desktop_packages}")
 
     print("[3/4] Sistem konfigürasyonu yapilandiriliyor...")
     time.sleep(1)
