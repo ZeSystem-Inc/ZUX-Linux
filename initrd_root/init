@@ -1,0 +1,19 @@
+#!/bin/bin/sh
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+
+clear
+echo "=========================================="
+echo "    ZUX OS Netinst Installer Booted"
+echo "=========================================="
+echo ""
+
+if [ -f /installer/setup.sh ]; then
+    sh /installer/setup.sh
+else
+    echo "Installer betigi bulunamadi, kabuga geciliyor..."
+    exec /bin/sh
+fi
