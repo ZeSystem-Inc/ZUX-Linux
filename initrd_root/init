@@ -17,15 +17,9 @@ exec 2>/dev/tty1
 clear
 
 if [ -f /installer/setup.elf ]; then
-    echo "ZUX OS Kurulum Ortamı Başlatılıyor..."
     chmod +x /installer/setup.elf
     /installer/setup.elf
 else
-    echo "HATA: Kurulum dosyası (/installer/setup.elf) bulunamadı!"
-    echo "Kurtarma kabuğu başlatılıyor..."
+    echo "HATA: Kurulum dosyasi bulunamadi!"
     exec /bin/sh
 fi
-
-echo ""
-echo "Kurulum tamamlandı veya kapatıldı. Sistemi yeniden başlatmak için reboot yazın."
-exec /bin/sh
