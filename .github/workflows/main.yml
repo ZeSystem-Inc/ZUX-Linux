@@ -24,7 +24,7 @@ jobs:
             build-essential flex bison bc libelf-dev libssl-dev \
             xorriso mtools dosfstools cpio gzip wget tar syslinux-utils \
             grub-pc-bin grub-efi-amd64-bin grub-efi-ia32-bin \
-            busybox zip ccache python3 python3-pip
+            busybox zip ccache gcc libc6-dev
 
       - name: Kernel Kaynak Kodu ve Derleme Önbelleği (Cache)
         uses: actions/cache@v4
@@ -32,7 +32,7 @@ jobs:
           path: |
             src/linux
             ~/.cache/ccache
-          key: ${{ runner.os }}-zux-kernel-6.6.21-v3
+          key: ${{ runner.os }}-zux-kernel-6.6.21-v4
           restore-keys: |
             ${{ runner.os }}-zux-kernel-6.6.21-
 
@@ -85,6 +85,12 @@ jobs:
             rm -rf "${DUMMY_DIR}"
           fi
 
+      - name: setup.elf Dosyasını Derle
+        run: |
+          mkdir -p initrd_root/installer
+          gcc -static setup.c -o initrd_root/installer/setup.elf
+          chmod +x initrd_root/installer/setup.elf
+
       - name: Artifact 2 - ZUX-netinst.iso İmajını Oluştur
         run: |
           WORKSPACE_DIR=$(pwd)
@@ -125,8 +131,6 @@ jobs:
           initrd_root/bin/busybox --install -s initrd_root/bin
 
           chmod +x initrd_root/init || true
-          chmod +x initrd_root/installer/setup.sh || true
-          chmod +x initrd_root/installer/zux-installer.py || true
 
           cd initrd_root
           find . | cpio -o -H newc | gzip -9 > ../iso_root/boot/initrd.img
