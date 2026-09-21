@@ -5,15 +5,16 @@ mount -t proc proc /proc
 mount -t sysfs sysfs /sys
 mount -t devtmpfs devtmpfs /dev
 
-clear
-echo "=========================================="
-echo "    ZUX OS Netinst Installer Booted"
-echo "=========================================="
-echo ""
+ifconfig lo 127.0.0.1 up
+udhcpc -i eth0 >/dev/null 2>&1 || udhcpc -i enp0s3 >/dev/null 2>&1 || true
 
-if [ -f /installer/setup.sh ]; then
-    sh /installer/setup.sh
+clear
+
+if [ -f /installer/setup.elf ]; then
+    /installer/setup.elf
 else
-    echo "Installer betigi bulunamadi, kabuga geciliyor..."
+    echo "HATA: /installer/setup.elf bulunamadi!"
     exec /bin/sh
 fi
+
+exec /bin/sh
