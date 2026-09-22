@@ -1,4 +1,4 @@
-name: ZUX OS ISO and Release Build
+name: ZUX OS ISO Build
 
 on:
   push:
@@ -19,64 +19,86 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc make cpio xorriso grub-pc-bin grub-efi-amd64-bin grub-common mtools dosfstools zip wget wpasupplicant wireless-tools busybox-static e2fsprogs
+          sudo apt-get install -y gcc make cpio xorriso grub-pc-bin grub-efi-amd64-bin grub-common mtools dosfstools zip busybox-static e2fsprogs
 
       - name: Create Workspace Directories
         run: |
           mkdir -p build_dir/iso_root/boot/grub
-          mkdir -p build_dir/initrd_root/installer
           mkdir -p build_dir/initrd_root/bin
           mkdir -p build_dir/initrd_root/sbin
           mkdir -p build_dir/initrd_root/proc
           mkdir -p build_dir/initrd_root/sys
           mkdir -p build_dir/initrd_root/dev
           mkdir -p build_dir/initrd_root/etc
+          mkdir -p build_dir/initrd_root/installer
           mkdir -p build_dir/release_assets
 
-      - name: Compile Setup Installer (Static Binary)
+      - name: Compile Setup Installer
         run: |
-          gcc -O2 -s -static -Wno-unused-result setup.c -o build_dir/initrd_root/installer/setup.elf
+          if [ -f setup.c ]; then
+            gcc -O2 -s -static -Wno-unused-result setup.c -o build_dir/initrd_root/installer/setup.elf
+          fi
 
-      - name: Prepare RootFS and Pack ZUX.zip
+      - name: Copy Kernel from Host System
+        run: |
+          # Dışarıdan dosya indirmek yerine GitHub Runner'ın çalışan Linux çekirdeğini kullanıyoruz
+          KERNEL_PATH=$(ls -1 /boot/vmlinuz-* | head -n 1)
+          cp "$KERNEL_PATH" build_dir/iso_root/boot/vmlinuz
+
+      - name: Prepare RootFS Zip
         run: |
           WORKSPACE_DIR=$(pwd)
           UPLOAD_DIR="${WORKSPACE_DIR}/build_dir/release_assets"
 
           if [ -d "rootfs" ] && [ "$(ls -A rootfs)" ]; then
-            cd rootfs
-            zip -r "${UPLOAD_DIR}/ZUX.zip" .
-            cd "${WORKSPACE_DIR}"
+            cd rootfs && zip -r "${UPLOAD_DIR}/ZUX.zip" . && cd "${WORKSPACE_DIR}"
           else
             DUMMY_DIR="${WORKSPACE_DIR}/tmp_rootfs"
-            mkdir -p "${DUMMY_DIR}/etc" "${DUMMY_DIR}/bin"
+            mkdir -p "${DUMMY_DIR}/etc"
             echo "ZUX OS Rootfs" > "${DUMMY_DIR}/etc/zux-release"
-            cd "${DUMMY_DIR}"
-            zip -r "${UPLOAD_DIR}/ZUX.zip" .
-            cd "${WORKSPACE_DIR}"
+            cd "${DUMMY_DIR}" && zip -r "${UPLOAD_DIR}/ZUX.zip" . && cd "${WORKSPACE_DIR}"
             rm -rf "${DUMMY_DIR}"
           fi
 
-      - name: Pack Initrd Payload (With BusyBox Shell)
+      - name: Build BusyBox Initrd Shell
         run: |
+          # Busybox ikilisini kopyala ve komut bağlantılarını kur
           cp /bin/busybox build_dir/initrd_root/bin/busybox
           chmod +x build_dir/initrd_root/bin/busybox
 
           cd build_dir/initrd_root/bin
           ./busybox --install -s .
-          cd ../../..
+          cd ../..
 
-          cp initrd_root/init build_dir/initrd_root/init
+          # Otomatik çalışan kurşun geçirmez /init betiği
+          cat << 'EOF' > build_dir/initrd_root/init
+          #!/bin/busybox sh
+
+          /bin/busybox mount -t proc proc /proc
+          /bin/busybox mount -t sysfs sysfs /sys
+          /bin/busybox mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
+
+          clear
+          echo "==============================================="
+          echo "          ZUX OS Preinstallation Shell         "
+          echo "==============================================="
+          echo ""
+
+          if [ -f /installer/setup.elf ]; then
+            /installer/setup.elf
+          fi
+
+          echo ""
+          echo "Shell ekranina aktariliyorsunuz..."
+          exec /bin/busybox setsid /bin/busybox cttyhack /bin/sh
+          EOF
+
           chmod +x build_dir/initrd_root/init
-          chmod +x build_dir/initrd_root/installer/setup.elf
 
+          # Initrd imajını arşivle
           cd build_dir/initrd_root
           find . -print0 | cpio --null -ov --format=newc | gzip -9 > ../iso_root/boot/initrd.img
           cd ../..
-
-      - name: Download Linux Kernel
-        run: |
-          wget -q https://cdn.kernel.org/pub/linux/kernel/v6.x/vmlinuz-6.1.0-21-amd64 -O build_dir/iso_root/boot/vmlinuz || \
-          wget -q https://boot.netboot.xyz/memdisk -O build_dir/iso_root/boot/vmlinuz
 
       - name: Configure GRUB Menu
         run: |
@@ -94,7 +116,7 @@ jobs:
           set gfxpayload=keep
 
           menuentry "ZUX OS Preinstallation Environment" {
-              linux /boot/vmlinuz quiet console=tty1
+              linux /boot/vmlinuz quiet console=tty1 console=ttyS0
               initrd /boot/initrd.img
           }
           EOF
@@ -103,20 +125,13 @@ jobs:
         run: |
           grub-mkrescue -o build_dir/release_assets/ZUX-Installer.iso build_dir/iso_root
 
-      - name: Generate SHA256 Checksums
-        run: |
-          cd build_dir/release_assets
-          sha256sum ZUX-Installer.iso > ZUX-Installer.iso.sha256
-          sha256sum ZUX.zip > ZUX.zip.sha256
-          sha256sum ZUX-Installer.iso ZUX.zip > SHA256SUMS
-
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ZUX-Build-Assets
           path: build_dir/release_assets/*
 
-      - name: Publish Release 1.0 Assets
+      - name: Publish Release Assets
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
         uses: softprops/action-gh-release@v2
         with:
@@ -127,7 +142,5 @@ jobs:
           files: |
             build_dir/release_assets/ZUX.zip
             build_dir/release_assets/ZUX-Installer.iso
-            build_dir/release_assets/*.sha256
-            build_dir/release_assets/SHA256SUMS
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
