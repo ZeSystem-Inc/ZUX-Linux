@@ -41,9 +41,9 @@ jobs:
 
       - name: Copy Kernel from Host System
         run: |
-          # Dışarıdan dosya indirmek yerine GitHub Runner'ın çalışan Linux çekirdeğini kullanıyoruz
           KERNEL_PATH=$(ls -1 /boot/vmlinuz-* | head -n 1)
-          cp "$KERNEL_PATH" build_dir/iso_root/boot/vmlinuz
+          sudo cp "$KERNEL_PATH" build_dir/iso_root/boot/vmlinuz
+          sudo chmod 644 build_dir/iso_root/boot/vmlinuz
 
       - name: Prepare RootFS Zip
         run: |
@@ -62,7 +62,6 @@ jobs:
 
       - name: Build BusyBox Initrd Shell
         run: |
-          # Busybox ikilisini kopyala ve komut bağlantılarını kur
           cp /bin/busybox build_dir/initrd_root/bin/busybox
           chmod +x build_dir/initrd_root/bin/busybox
 
@@ -70,7 +69,6 @@ jobs:
           ./busybox --install -s .
           cd ../..
 
-          # Otomatik çalışan kurşun geçirmez /init betiği
           cat << 'EOF' > build_dir/initrd_root/init
           #!/bin/busybox sh
 
@@ -95,7 +93,6 @@ jobs:
 
           chmod +x build_dir/initrd_root/init
 
-          # Initrd imajını arşivle
           cd build_dir/initrd_root
           find . -print0 | cpio --null -ov --format=newc | gzip -9 > ../iso_root/boot/initrd.img
           cd ../..
