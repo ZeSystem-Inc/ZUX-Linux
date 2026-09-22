@@ -19,7 +19,7 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc make cpio xorriso grub-pc-bin grub-efi-amd64-bin grub-common mtools dosfstools zip wget
+          sudo apt-get install -y gcc make cpio xorriso grub-pc-bin grub-efi-amd64-bin grub-common mtools dosfstools zip wget wpasupplicant wireless-tools
 
       - name: Create Workspace Directories
         run: |
@@ -71,7 +71,7 @@ jobs:
           set default=0
           set timeout=3
 
-          menuentry "ZUX OS Installer" {
+          menuentry "ZUX OS Preinstallation Environment" {
               linux /boot/vmlinuz quiet
               initrd /boot/initrd.img
           }
