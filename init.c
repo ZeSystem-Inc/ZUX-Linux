@@ -8,7 +8,7 @@
 #include <sys/wait.h>
 
 int main(void) {
-    setenv("PATH", "/bin:/sbin:/usr/bin:/usr/sbin", 1);
+    (void)setenv("PATH", "/bin:/sbin:/usr/bin:/usr/sbin", 1);
 
     mkdir("/proc", 0755);
     mkdir("/sys", 0755);
@@ -33,7 +33,7 @@ int main(void) {
     printf("===============================================\n");
     printf("          ZUX OS Preinstallation Shell         \n");
     printf("===============================================\n\n");
-    printf("[*] Arch-style donanim taramasi baslatiliyor...\n");
+    printf("[*] Donanim ve ag suruculeri yukleniyor...\n");
     fflush(stdout);
 
     (void)system("depmod -a 2>/dev/null");
@@ -41,25 +41,40 @@ int main(void) {
     (void)system("echo /sbin/mdev > /proc/sys/kernel/hotplug");
     (void)system("mdev -s 2>/dev/null");
 
+    (void)system("modprobe pci_hotplug 2>/dev/null");
+    (void)system("modprobe mii 2>/dev/null");
+    (void)system("modprobe ptp 2>/dev/null");
+    (void)system("modprobe pps_core 2>/dev/null");
+
+    (void)system("modprobe e1000 2>/dev/null");
+    (void)system("modprobe e1000e 2>/dev/null");
+    (void)system("modprobe virtio_net 2>/dev/null");
+    (void)system("modprobe pcnet32 2>/dev/null");
+    (void)system("modprobe r8169 2>/dev/null");
+    (void)system("modprobe 8139too 2>/dev/null");
+
     (void)system("find /sys/bus/pci/devices /sys/bus/usb/devices -name modalias 2>/dev/null | xargs -r modprobe -a -q 2>/dev/null");
 
-    sleep(1);
+    sleep(2);
     (void)system("mdev -s 2>/dev/null");
 
     (void)system("ip link set lo up 2>/dev/null");
 
+    printf("[*] Ag arabirimleri kontrol ediliyor...\n");
+    fflush(stdout);
+
     (void)system("for iface in $(ls /sys/class/net/ 2>/dev/null | grep -v lo); do "
                  "  ip link set $iface up 2>/dev/null; "
-                 "  echo \"[*] $iface uyarildi, link (carrier) bekleniyor...\"; "
+                 "  echo \"[+] Arabirim bulundu: $iface, baglanti bekleniyor...\"; "
                  "  for i in 1 2 3 4 5; do "
                  "    if [ \"$(cat /sys/class/net/$iface/carrier 2>/dev/null)\" = \"1\" ]; then "
-                 "      echo \"[+] $iface baglantisi hazir!\"; "
+                 "      echo \"[+] $iface baglantisi aktif!\"; "
                  "      break; "
                  "    fi; "
                  "    sleep 1; "
                  "  done; "
                  "  echo \"[*] $iface uzerinden DHCP istegi gonderiliyor...\"; "
-                 "  udhcpc -i $iface -n -t 10 -T 3 -q -s /usr/share/udhcpc/default.script; "
+                 "  udhcpc -i $iface -n -t 8 -T 2 -q -s /usr/share/udhcpc/default.script; "
                  "done");
 
     if (access("/installer/setup.elf", X_OK) == 0) {
