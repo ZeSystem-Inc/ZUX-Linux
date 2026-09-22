@@ -62,12 +62,14 @@ jobs:
 
       - name: Build BusyBox Initrd Shell
         run: |
+          WORKSPACE_DIR=$(pwd)
+
           cp /bin/busybox build_dir/initrd_root/bin/busybox
           chmod +x build_dir/initrd_root/bin/busybox
 
           cd build_dir/initrd_root/bin
           ./busybox --install -s .
-          cd ../..
+          cd "${WORKSPACE_DIR}"
 
           cat << 'EOF' > build_dir/initrd_root/init
           #!/bin/busybox sh
@@ -95,7 +97,7 @@ jobs:
 
           cd build_dir/initrd_root
           find . -print0 | cpio --null -ov --format=newc | gzip -9 > ../iso_root/boot/initrd.img
-          cd ../..
+          cd "${WORKSPACE_DIR}"
 
       - name: Configure GRUB Menu
         run: |
