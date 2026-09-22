@@ -27,9 +27,9 @@ jobs:
           mkdir -p build_dir/initrd_root/installer
           mkdir -p build_dir/release_assets
 
-      - name: Compile Setup Installer
+      - name: Compile Setup Installer (Stripped Binary)
         run: |
-          gcc -O2 setup.c -o build_dir/initrd_root/installer/setup.elf
+          gcc -O2 -s setup.c -o build_dir/initrd_root/installer/setup.elf
 
       - name: Prepare RootFS and Pack ZUX.zip
         run: |
@@ -90,6 +90,13 @@ jobs:
         run: |
           grub-mkrescue -o build_dir/release_assets/ZUX-Installer.iso build_dir/iso_root
 
+      - name: Generate SHA256 Checksums
+        run: |
+          cd build_dir/release_assets
+          sha256sum ZUX-Installer.iso > ZUX-Installer.iso.sha256
+          sha256sum ZUX.zip > ZUX.zip.sha256
+          sha256sum ZUX-Installer.iso ZUX.zip > SHA256SUMS
+
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -107,5 +114,7 @@ jobs:
           files: |
             build_dir/release_assets/ZUX.zip
             build_dir/release_assets/ZUX-Installer.iso
+            build_dir/release_assets/*.sha256
+            build_dir/release_assets/SHA256SUMS
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
