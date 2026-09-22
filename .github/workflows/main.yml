@@ -63,12 +63,21 @@ jobs:
           EOF
           chmod +x build_dir/initrd_root/usr/share/udhcpc/default.script
 
-      - name: Copy Kernel Network Modules and Generate Dependencies
+      - name: Download Static BusyBox Binary & Install Symlinks
+        run: |
+          WORKSPACE_DIR=$(pwd)
+          wget -q https://busybox.net/downloads/binaries/1.35.0-x86_64-linux-musl/busybox -O build_dir/initrd_root/bin/busybox
+          chmod +x build_dir/initrd_root/bin/busybox
+
+          cd build_dir/initrd_root
+          ./bin/busybox --install -s .
+          cd "${WORKSPACE_DIR}"
+
+      - name: Copy Universal Generic Kernel Modules and Generate Map
         run: |
           KVER=$(ls -1 /lib/modules/ | grep generic | head -n 1)
           mkdir -p "build_dir/initrd_root/lib/modules/$KVER"
-          sudo cp -r /lib/modules/$KVER/kernel/drivers/net "build_dir/initrd_root/lib/modules/$KVER/" 2>/dev/null || true
-          sudo cp -r /lib/modules/$KVER/kernel/net "build_dir/initrd_root/lib/modules/$KVER/" 2>/dev/null || true
+          sudo cp -r /lib/modules/$KVER/kernel "build_dir/initrd_root/lib/modules/$KVER/" 2>/dev/null || true
           sudo cp /lib/modules/$KVER/modules.* "build_dir/initrd_root/lib/modules/$KVER/" 2>/dev/null || true
           sudo chmod -R 755 "build_dir/initrd_root/lib/modules"
           sudo depmod -a -b build_dir/initrd_root "$KVER"
@@ -92,6 +101,8 @@ jobs:
           #include <sys/wait.h>
 
           int main(void) {
+              setenv("PATH", "/bin:/sbin:/usr/bin:/usr/sbin", 1);
+
               mkdir("/proc", 0755);
               mkdir("/sys", 0755);
               mkdir("/dev", 0755);
@@ -115,21 +126,47 @@ jobs:
               printf("===============================================\n");
               printf("          ZUX OS Preinstallation Shell         \n");
               printf("===============================================\n\n");
-              printf("[*] Ag suruculeri yukleniyor...\n");
+              printf("[*] Donanim ve ag suruculeri yukleniyor...\n");
               fflush(stdout);
 
+              system("depmod -a 2>/dev/null");
               system("modprobe e1000 2>/dev/null");
               system("modprobe e1000e 2>/dev/null");
               system("modprobe virtio_net 2>/dev/null");
               system("modprobe pcnet32 2>/dev/null");
               system("modprobe r8169 2>/dev/null");
+              system("modprobe 8139too 2>/dev/null");
+
+              system("find /lib/modules -name '*.ko*' -exec insmod {} \\; 2>/dev/null");
+
+              sleep(2);
 
               system("ip link set lo up 2>/dev/null");
 
-              system("for iface in $(ls /sys/class/net/ | grep -v lo); do "
+              printf("[*] Otomatik IP (DHCP) aliniyor...\n");
+              fflush(stdout);
+
+              system("for iface in $(ls /sys/class/net/ 2>/dev/null | grep -v lo); do "
                      "  ip link set $iface up 2>/dev/null; "
-                     "  udhcpc -i $iface -n -q -t 5 -s /usr/share/udhcpc/default.script >/dev/null 2>&1; "
+                     "  udhcpc -i $iface -n -t 5 -T 2 -q -s /usr/share/udhcpc/default.script >/dev/null 2>&1; "
                      "done");
+
+              int connected = 0;
+              for (int i = 0; i < 10; i++) {
+                  if (system("ping -c 1 -W 1 8.8.8.8 >/dev/null 2>&1") == 0 ||
+                      system("ping -c 1 -W 1 1.1.1.1 >/dev/null 2>&1") == 0) {
+                      connected = 1;
+                      printf("[+] Ag baglantisi kuruldu!\n\n");
+                      fflush(stdout);
+                      break;
+                  }
+                  sleep(1);
+              }
+
+              if (!connected) {
+                  printf("[!] Dikkat: Ag baglantisi kurulamadi, kurulum devam ediyor...\n\n");
+                  fflush(stdout);
+              }
 
               if (access("/installer/setup.elf", X_OK) == 0) {
                   printf("[*] ZUX OS Otomatik Kurulum Baslatiliyor...\n\n");
@@ -164,16 +201,6 @@ jobs:
           }
           EOF
           gcc -O2 -s -static init.c -o build_dir/initrd_root/init
-
-      - name: Download Static BusyBox Binary
-        run: |
-          WORKSPACE_DIR=$(pwd)
-          wget -q https://busybox.net/downloads/binaries/1.35.0-x86_64-linux-musl/busybox -O build_dir/initrd_root/bin/busybox
-          chmod +x build_dir/initrd_root/bin/busybox
-
-          cd build_dir/initrd_root/bin
-          ./busybox --install -s .
-          cd "${WORKSPACE_DIR}"
 
       - name: Copy Universal Generic Kernel
         run: |
