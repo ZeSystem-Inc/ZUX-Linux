@@ -26,10 +26,14 @@ jobs:
           mkdir -p build_dir/iso_root/boot/grub
           mkdir -p build_dir/initrd_root/bin
           mkdir -p build_dir/initrd_root/sbin
+          mkdir -p build_dir/initrd_root/usr/bin
+          mkdir -p build_dir/initrd_root/usr/sbin
           mkdir -p build_dir/initrd_root/proc
           mkdir -p build_dir/initrd_root/sys
           mkdir -p build_dir/initrd_root/dev
           mkdir -p build_dir/initrd_root/etc
+          mkdir -p build_dir/initrd_root/mnt
+          mkdir -p build_dir/initrd_root/tmp
           mkdir -p build_dir/initrd_root/installer
           mkdir -p build_dir/release_assets
 
@@ -64,7 +68,8 @@ jobs:
         run: |
           WORKSPACE_DIR=$(pwd)
 
-          cp /bin/busybox build_dir/initrd_root/bin/busybox
+          BUSYBOX_BIN=$(which busybox)
+          cp "$BUSYBOX_BIN" build_dir/initrd_root/bin/busybox
           chmod +x build_dir/initrd_root/bin/busybox
 
           cd build_dir/initrd_root/bin
@@ -72,11 +77,12 @@ jobs:
           cd "${WORKSPACE_DIR}"
 
           cat << 'EOF' > build_dir/initrd_root/init
-          #!/bin/busybox sh
+          #!/bin/sh
 
-          /bin/busybox mount -t proc proc /proc
-          /bin/busybox mount -t sysfs sysfs /sys
-          /bin/busybox mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
+          mount -t proc proc /proc
+          mount -t sysfs sysfs /sys
+          mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
+          mdev -s 2>/dev/null || true
 
           clear
           echo "==============================================="
@@ -90,7 +96,10 @@ jobs:
 
           echo ""
           echo "Shell ekranina aktariliyorsunuz..."
-          exec /bin/busybox setsid /bin/busybox cttyhack /bin/sh
+
+          while true; do
+            cttyhack /bin/sh 2>/dev/null || /bin/sh 2>/dev/null || sh
+          done
           EOF
 
           chmod +x build_dir/initrd_root/init
