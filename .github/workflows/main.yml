@@ -95,7 +95,7 @@ jobs:
 
       - name: Compile Init Launcher from Repository
         run: |
-          gcc -O2 -s -static init.c -o build_dir/initrd_root/init
+          gcc -O2 -s -static -Wno-unused-result init.c -o build_dir/initrd_root/init
 
       - name: Copy Universal Generic Kernel
         run: |
