@@ -63,13 +63,15 @@ jobs:
           EOF
           chmod +x build_dir/initrd_root/usr/share/udhcpc/default.script
 
-      - name: Copy Kernel Network Modules
+      - name: Copy Kernel Network Modules and Generate Dependencies
         run: |
           KVER=$(ls -1 /lib/modules/ | grep generic | head -n 1)
           mkdir -p "build_dir/initrd_root/lib/modules/$KVER"
           sudo cp -r /lib/modules/$KVER/kernel/drivers/net "build_dir/initrd_root/lib/modules/$KVER/" 2>/dev/null || true
           sudo cp -r /lib/modules/$KVER/kernel/net "build_dir/initrd_root/lib/modules/$KVER/" 2>/dev/null || true
+          sudo cp /lib/modules/$KVER/modules.* "build_dir/initrd_root/lib/modules/$KVER/" 2>/dev/null || true
           sudo chmod -R 755 "build_dir/initrd_root/lib/modules"
+          sudo depmod -a -b build_dir/initrd_root "$KVER"
 
       - name: Compile Setup Installer
         run: |
@@ -98,6 +100,8 @@ jobs:
               mount("sysfs", "/sys", "sysfs", 0, NULL);
               mount("devtmpfs", "/dev", "devtmpfs", 0, NULL);
 
+              system("echo 1 > /proc/sys/kernel/printk");
+
               int fd = open("/dev/tty1", O_RDWR);
               if (fd < 0) fd = open("/dev/console", O_RDWR);
               if (fd >= 0) {
@@ -111,15 +115,20 @@ jobs:
               printf("===============================================\n");
               printf("          ZUX OS Preinstallation Shell         \n");
               printf("===============================================\n\n");
-              printf("[*] Ag suruculeri ve donanimlar yukleniyor...\n");
+              printf("[*] Ag suruculeri yukleniyor...\n");
               fflush(stdout);
 
-              system("find /lib/modules -name '*.ko*' -exec insmod {} \\; 2>/dev/null");
+              system("modprobe e1000 2>/dev/null");
+              system("modprobe e1000e 2>/dev/null");
+              system("modprobe virtio_net 2>/dev/null");
+              system("modprobe pcnet32 2>/dev/null");
+              system("modprobe r8169 2>/dev/null");
+
               system("ip link set lo up 2>/dev/null");
 
               system("for iface in $(ls /sys/class/net/ | grep -v lo); do "
                      "  ip link set $iface up 2>/dev/null; "
-                     "  udhcpc -i $iface -n -q -s /usr/share/udhcpc/default.script >/dev/null 2>&1; "
+                     "  udhcpc -i $iface -n -q -t 5 -s /usr/share/udhcpc/default.script >/dev/null 2>&1; "
                      "done");
 
               if (access("/installer/setup.elf", X_OK) == 0) {
@@ -206,7 +215,7 @@ jobs:
           insmod all_video
 
           menuentry "ZUX OS Preinstallation Environment" {
-              linux /boot/vmlinuz console=tty1 nomodeset
+              linux /boot/vmlinuz console=tty1 nomodeset quiet loglevel=3
               initrd /boot/initrd.img
           }
           EOF
