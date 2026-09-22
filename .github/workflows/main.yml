@@ -19,7 +19,7 @@ jobs:
       - name: Install Dependencies and Generic Kernel
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc make cpio xorriso grub-pc-bin grub-efi-amd64-bin grub-common mtools dosfstools zip wget e2fsprogs linux-image-generic
+          sudo apt-get install -y gcc make cpio xorriso grub-pc-bin grub-efi-amd64-bin grub-common mtools dosfstools zip wget e2fsprogs linux-image-generic kmod
 
       - name: Create Workspace Directories
         run: |
@@ -28,14 +28,48 @@ jobs:
           mkdir -p build_dir/initrd_root/sbin
           mkdir -p build_dir/initrd_root/usr/bin
           mkdir -p build_dir/initrd_root/usr/sbin
+          mkdir -p build_dir/initrd_root/usr/share/udhcpc
           mkdir -p build_dir/initrd_root/proc
           mkdir -p build_dir/initrd_root/sys
           mkdir -p build_dir/initrd_root/dev
           mkdir -p build_dir/initrd_root/etc
+          mkdir -p build_dir/initrd_root/lib/modules
           mkdir -p build_dir/initrd_root/mnt
           mkdir -p build_dir/initrd_root/tmp
           mkdir -p build_dir/initrd_root/installer
           mkdir -p build_dir/release_assets
+
+      - name: Create BusyBox DHCP Script
+        run: |
+          cat << 'EOF' > build_dir/initrd_root/usr/share/udhcpc/default.script
+          #!/bin/sh
+          case "$1" in
+              deconfig)
+                  ip addr flush dev "$interface"
+                  ;;
+              renew|bound)
+                  ip addr add "$ip/$mask" dev "$interface"
+                  if [ -n "$router" ]; then
+                      ip route add default via "$router" dev "$interface" 2>/dev/null || true
+                  fi
+                  if [ -n "$dns" ]; then
+                      echo "" > /etc/resolv.conf
+                      for i in $dns; do
+                          echo "nameserver $i" >> /etc/resolv.conf
+                      done
+                  fi
+                  ;;
+          esac
+          EOF
+          chmod +x build_dir/initrd_root/usr/share/udhcpc/default.script
+
+      - name: Copy Kernel Network Modules
+        run: |
+          KVER=$(ls -1 /lib/modules/ | grep generic | head -n 1)
+          mkdir -p "build_dir/initrd_root/lib/modules/$KVER"
+          sudo cp -r /lib/modules/$KVER/kernel/drivers/net "build_dir/initrd_root/lib/modules/$KVER/" 2>/dev/null || true
+          sudo cp -r /lib/modules/$KVER/kernel/net "build_dir/initrd_root/lib/modules/$KVER/" 2>/dev/null || true
+          sudo chmod -R 755 "build_dir/initrd_root/lib/modules"
 
       - name: Compile Setup Installer
         run: |
@@ -77,7 +111,16 @@ jobs:
               printf("===============================================\n");
               printf("          ZUX OS Preinstallation Shell         \n");
               printf("===============================================\n\n");
+              printf("[*] Ag suruculeri ve donanimlar yukleniyor...\n");
               fflush(stdout);
+
+              system("find /lib/modules -name '*.ko*' -exec insmod {} \\; 2>/dev/null");
+              system("ip link set lo up 2>/dev/null");
+
+              system("for iface in $(ls /sys/class/net/ | grep -v lo); do "
+                     "  ip link set $iface up 2>/dev/null; "
+                     "  udhcpc -i $iface -n -q -s /usr/share/udhcpc/default.script >/dev/null 2>&1; "
+                     "done");
 
               if (access("/installer/setup.elf", X_OK) == 0) {
                   printf("[*] ZUX OS Otomatik Kurulum Baslatiliyor...\n\n");
