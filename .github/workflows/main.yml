@@ -19,7 +19,7 @@ jobs:
       - name: Install Dependencies and Generic Kernel
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc make cpio xorriso grub-pc-bin grub-efi-amd64-bin grub-common mtools dosfstools zip wget e2fsprogs linux-image-generic kmod
+          sudo apt-get install -y gcc make cpio xorriso grub-pc-bin grub-efi-amd64-bin grub-common mtools dosfstools zip wget e2fsprogs linux-image-generic kmod zstd xz-utils
 
       - name: Create Workspace Directories
         run: |
@@ -73,13 +73,18 @@ jobs:
           ./bin/busybox --install -s .
           cd "${WORKSPACE_DIR}"
 
-      - name: Copy Universal Generic Kernel Modules and Generate Map
+      - name: Copy Kernel Modules, Uncompress & Generate Map
         run: |
           KVER=$(ls -1 /lib/modules/ | grep generic | head -n 1)
           mkdir -p "build_dir/initrd_root/lib/modules/$KVER"
           sudo cp -r /lib/modules/$KVER/kernel "build_dir/initrd_root/lib/modules/$KVER/" 2>/dev/null || true
           sudo cp /lib/modules/$KVER/modules.* "build_dir/initrd_root/lib/modules/$KVER/" 2>/dev/null || true
           sudo chmod -R 755 "build_dir/initrd_root/lib/modules"
+
+          echo "[*] Sürücüler açılıyor (.zst / .xz)..."
+          sudo find build_dir/initrd_root/lib/modules/ -name "*.ko.zst" -exec zstd -d --rm {} + 2>/dev/null || true
+          sudo find build_dir/initrd_root/lib/modules/ -name "*.ko.xz" -exec unxz {} + 2>/dev/null || true
+
           sudo depmod -a -b build_dir/initrd_root "$KVER"
 
       - name: Compile Setup Installer
@@ -88,7 +93,7 @@ jobs:
             gcc -O2 -s -static -Wno-unused-result setup.c -o build_dir/initrd_root/installer/setup.elf
           fi
 
-      - name: Build Static C Init Launcher
+      - name: Build Static C Init Launcher (Arch-Style Auto Hardware Detection)
         run: |
           cat << 'EOF' > init.c
           #include <stdio.h>
@@ -126,50 +131,36 @@ jobs:
               printf("===============================================\n");
               printf("          ZUX OS Preinstallation Shell         \n");
               printf("===============================================\n\n");
-              printf("[*] Donanim ve ag suruculeri yukleniyor...\n");
+              printf("[*] Arch-Style donanim taramasi baslatiliyor...\n");
               fflush(stdout);
 
               system("depmod -a 2>/dev/null");
-              system("modprobe e1000 2>/dev/null");
-              system("modprobe e1000e 2>/dev/null");
-              system("modprobe virtio_net 2>/dev/null");
-              system("modprobe pcnet32 2>/dev/null");
-              system("modprobe r8169 2>/dev/null");
-              system("modprobe 8139too 2>/dev/null");
 
-              system("find /lib/modules -name '*.ko*' -exec insmod {} \\; 2>/dev/null");
+              /* BusyBox Mdev Aygit Yöneticisini Aktif Et */
+              system("echo /sbin/mdev > /proc/sys/kernel/hotplug");
+              system("mdev -s 2>/dev/null");
 
-              sleep(2);
+              /* PCI ve USB veriyollarındaki donanımların modalias verilerini oku ve modprobe ile yükle */
+              printf("[*] Donanim modalias taramasi yapiliyor ve suruculer yukleniyor...\n");
+              fflush(stdout);
+              system("find /sys/bus/pci/devices /sys/bus/usb/devices -name modalias 2>/dev/null | xargs -r modprobe -a -q 2>/dev/null");
+
+              sleep(1);
+              system("mdev -s 2>/dev/null");
 
               system("ip link set lo up 2>/dev/null");
 
-              printf("[*] Otomatik IP (DHCP) aliniyor...\n");
+              printf("[*] Tespit edilen ag arabirimleri taranip IP aliniyor...\n");
               fflush(stdout);
 
               system("for iface in $(ls /sys/class/net/ 2>/dev/null | grep -v lo); do "
+                     "  echo \"[+] Bulunan Ağ Arabirimi: $iface\"; "
                      "  ip link set $iface up 2>/dev/null; "
                      "  udhcpc -i $iface -n -t 5 -T 2 -q -s /usr/share/udhcpc/default.script >/dev/null 2>&1; "
                      "done");
 
-              int connected = 0;
-              for (int i = 0; i < 10; i++) {
-                  if (system("ping -c 1 -W 1 8.8.8.8 >/dev/null 2>&1") == 0 ||
-                      system("ping -c 1 -W 1 1.1.1.1 >/dev/null 2>&1") == 0) {
-                      connected = 1;
-                      printf("[+] Ag baglantisi kuruldu!\n\n");
-                      fflush(stdout);
-                      break;
-                  }
-                  sleep(1);
-              }
-
-              if (!connected) {
-                  printf("[!] Dikkat: Ag baglantisi kurulamadi, kurulum devam ediyor...\n\n");
-                  fflush(stdout);
-              }
-
               if (access("/installer/setup.elf", X_OK) == 0) {
-                  printf("[*] ZUX OS Otomatik Kurulum Baslatiliyor...\n\n");
+                  printf("\n[*] ZUX OS Otomatik Kurulum Baslatiliyor...\n\n");
                   fflush(stdout);
                   pid_t pid = fork();
                   if (pid == 0) {
@@ -242,7 +233,7 @@ jobs:
           insmod all_video
 
           menuentry "ZUX OS Preinstallation Environment" {
-              linux /boot/vmlinuz console=tty1 nomodeset quiet loglevel=3
+              linux /boot/vmlinuz console=tty1 nomodeset quiet loglevel=3 net.ifnames=0 biosdevname=0
               initrd /boot/initrd.img
           }
           EOF
