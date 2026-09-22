@@ -19,17 +19,23 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc make cpio xorriso grub-pc-bin grub-efi-amd64-bin grub-common mtools dosfstools zip wget wpasupplicant wireless-tools
+          sudo apt-get install -y gcc make cpio xorriso grub-pc-bin grub-efi-amd64-bin grub-common mtools dosfstools zip wget wpasupplicant wireless-tools busybox-static e2fsprogs
 
       - name: Create Workspace Directories
         run: |
           mkdir -p build_dir/iso_root/boot/grub
           mkdir -p build_dir/initrd_root/installer
+          mkdir -p build_dir/initrd_root/bin
+          mkdir -p build_dir/initrd_root/sbin
+          mkdir -p build_dir/initrd_root/proc
+          mkdir -p build_dir/initrd_root/sys
+          mkdir -p build_dir/initrd_root/dev
+          mkdir -p build_dir/initrd_root/etc
           mkdir -p build_dir/release_assets
 
-      - name: Compile Setup Installer (Stripped Binary)
+      - name: Compile Setup Installer (Static Binary)
         run: |
-          gcc -O2 -s setup.c -o build_dir/initrd_root/installer/setup.elf
+          gcc -O2 -s -static -Wno-unused-result setup.c -o build_dir/initrd_root/installer/setup.elf
 
       - name: Prepare RootFS and Pack ZUX.zip
         run: |
@@ -50,8 +56,15 @@ jobs:
             rm -rf "${DUMMY_DIR}"
           fi
 
-      - name: Pack Initrd Payload
+      - name: Pack Initrd Payload (With BusyBox Shell)
         run: |
+          cp /bin/busybox build_dir/initrd_root/bin/busybox
+          chmod +x build_dir/initrd_root/bin/busybox
+
+          cd build_dir/initrd_root/bin
+          ./busybox --install -s .
+          cd ../../..
+
           cp initrd_root/init build_dir/initrd_root/init
           chmod +x build_dir/initrd_root/init
           chmod +x build_dir/initrd_root/installer/setup.elf
