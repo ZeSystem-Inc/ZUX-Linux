@@ -18,7 +18,7 @@ int main(void) {
     mount("sysfs", "/sys", "sysfs", 0, NULL);
     mount("devtmpfs", "/dev", "devtmpfs", 0, NULL);
 
-    system("echo 1 > /proc/sys/kernel/printk");
+    (void)system("echo 1 > /proc/sys/kernel/printk");
 
     int fd = open("/dev/tty1", O_RDWR);
     if (fd < 0) fd = open("/dev/console", O_RDWR);
@@ -36,31 +36,31 @@ int main(void) {
     printf("[*] Arch-style donanim taramasi baslatiliyor...\n");
     fflush(stdout);
 
-    system("depmod -a 2>/dev/null");
+    (void)system("depmod -a 2>/dev/null");
 
-    system("echo /sbin/mdev > /proc/sys/kernel/hotplug");
-    system("mdev -s 2>/dev/null");
+    (void)system("echo /sbin/mdev > /proc/sys/kernel/hotplug");
+    (void)system("mdev -s 2>/dev/null");
 
-    system("find /sys/bus/pci/devices /sys/bus/usb/devices -name modalias 2>/dev/null | xargs -r modprobe -a -q 2>/dev/null");
+    (void)system("find /sys/bus/pci/devices /sys/bus/usb/devices -name modalias 2>/dev/null | xargs -r modprobe -a -q 2>/dev/null");
 
     sleep(1);
-    system("mdev -s 2>/dev/null");
+    (void)system("mdev -s 2>/dev/null");
 
-    system("ip link set lo up 2>/dev/null");
+    (void)system("ip link set lo up 2>/dev/null");
 
-    system("for iface in $(ls /sys/class/net/ 2>/dev/null | grep -v lo); do "
-           "  ip link set $iface up 2>/dev/null; "
-           "  echo \"[*] $iface uyarildi, link (carrier) bekleniyor...\"; "
-           "  for i in 1 2 3 4 5; do "
-           "    if [ \"$(cat /sys/class/net/$iface/carrier 2>/dev/null)\" = \"1\" ]; then "
-           "      echo \"[+] $iface baglantisi hazir!\"; "
-           "      break; "
-           "    fi; "
-           "    sleep 1; "
-           "  done; "
-           "  echo \"[*] $iface uzerinden DHCP istegi gonderiliyor...\"; "
-           "  udhcpc -i $iface -n -t 10 -T 3 -q -s /usr/share/udhcpc/default.script; "
-           "done");
+    (void)system("for iface in $(ls /sys/class/net/ 2>/dev/null | grep -v lo); do "
+                 "  ip link set $iface up 2>/dev/null; "
+                 "  echo \"[*] $iface uyarildi, link (carrier) bekleniyor...\"; "
+                 "  for i in 1 2 3 4 5; do "
+                 "    if [ \"$(cat /sys/class/net/$iface/carrier 2>/dev/null)\" = \"1\" ]; then "
+                 "      echo \"[+] $iface baglantisi hazir!\"; "
+                 "      break; "
+                 "    fi; "
+                 "    sleep 1; "
+                 "  done; "
+                 "  echo \"[*] $iface uzerinden DHCP istegi gonderiliyor...\"; "
+                 "  udhcpc -i $iface -n -t 10 -T 3 -q -s /usr/share/udhcpc/default.script; "
+                 "done");
 
     if (access("/installer/setup.elf", X_OK) == 0) {
         printf("\n[*] ZUX OS Otomatik Kurulum Baslatiliyor...\n\n");
