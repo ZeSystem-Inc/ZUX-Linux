@@ -19,7 +19,7 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc make cpio xorriso grub-pc-bin grub-efi-amd64-bin grub-common mtools dosfstools zip busybox-static e2fsprogs
+          sudo apt-get install -y gcc make cpio xorriso grub-pc-bin grub-efi-amd64-bin grub-common mtools dosfstools zip wget e2fsprogs
 
       - name: Create Workspace Directories
         run: |
@@ -43,6 +43,74 @@ jobs:
             gcc -O2 -s -static -Wno-unused-result setup.c -o build_dir/initrd_root/installer/setup.elf
           fi
 
+      - name: Build Static C Init Launcher
+        run: |
+          cat << 'EOF' > init.c
+          #include <stdio.h>
+          #include <stdlib.h>
+          #include <unistd.h>
+          #include <sys/mount.h>
+          #include <sys/stat.h>
+          #include <sys/types.h>
+          #include <sys/wait.h>
+
+          int main(void) {
+              mkdir("/proc", 0755);
+              mkdir("/sys", 0755);
+              mkdir("/dev", 0755);
+
+              mount("proc", "/proc", "proc", 0, NULL);
+              mount("sysfs", "/sys", "sysfs", 0, NULL);
+              mount("devtmpfs", "/dev", "devtmpfs", 0, NULL);
+
+              printf("\033[H\033[J");
+              printf("===============================================\n");
+              printf("          ZUX OS Preinstallation Shell         \n");
+              printf("===============================================\n\n");
+
+              if (access("/installer/setup.elf", X_OK) == 0) {
+                  printf("[*] ZUX OS Otomatik Kurulum Baslatiliyor...\n\n");
+                  pid_t pid = fork();
+                  if (pid == 0) {
+                      execl("/installer/setup.elf", "/installer/setup.elf", NULL);
+                      _exit(1);
+                  } else if (pid > 0) {
+                      int status;
+                      waitpid(pid, &status, 0);
+                  }
+              }
+
+              printf("\n[*] Shell ekranina aktariliyorsunuz.\n\n");
+
+              while (1) {
+                  if (access("/bin/busybox", X_OK) == 0) {
+                      pid_t pid = fork();
+                      if (pid == 0) {
+                          execl("/bin/busybox", "busybox", "sh", NULL);
+                          _exit(1);
+                      } else if (pid > 0) {
+                          int status;
+                          waitpid(pid, &status, 0);
+                      }
+                  } else {
+                      sleep(1);
+                  }
+              }
+              return 0;
+          }
+          EOF
+          gcc -O2 -s -static init.c -o build_dir/initrd_root/init
+
+      - name: Download Static BusyBox Binary
+        run: |
+          WORKSPACE_DIR=$(pwd)
+          wget -q https://busybox.net/downloads/binaries/1.35.0-x86_64-linux-musl/busybox -O build_dir/initrd_root/bin/busybox
+          chmod +x build_dir/initrd_root/bin/busybox
+
+          cd build_dir/initrd_root/bin
+          ./busybox --install -s .
+          cd "${WORKSPACE_DIR}"
+
       - name: Copy Kernel from Host System
         run: |
           KERNEL_PATH=$(ls -1 /boot/vmlinuz-* | head -n 1)
@@ -64,46 +132,9 @@ jobs:
             rm -rf "${DUMMY_DIR}"
           fi
 
-      - name: Build BusyBox Initrd Shell
+      - name: Pack Initrd Payload
         run: |
           WORKSPACE_DIR=$(pwd)
-
-          BUSYBOX_BIN=$(which busybox)
-          cp "$BUSYBOX_BIN" build_dir/initrd_root/bin/busybox
-          chmod +x build_dir/initrd_root/bin/busybox
-
-          cd build_dir/initrd_root/bin
-          ./busybox --install -s .
-          cd "${WORKSPACE_DIR}"
-
-          cat << 'EOF' > build_dir/initrd_root/init
-          #!/bin/sh
-
-          mount -t proc proc /proc
-          mount -t sysfs sysfs /sys
-          mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
-          mdev -s 2>/dev/null || true
-
-          clear
-          echo "==============================================="
-          echo "          ZUX OS Preinstallation Shell         "
-          echo "==============================================="
-          echo ""
-
-          if [ -f /installer/setup.elf ]; then
-            /installer/setup.elf
-          fi
-
-          echo ""
-          echo "Shell ekranina aktariliyorsunuz..."
-
-          while true; do
-            cttyhack /bin/sh 2>/dev/null || /bin/sh 2>/dev/null || sh
-          done
-          EOF
-
-          chmod +x build_dir/initrd_root/init
-
           cd build_dir/initrd_root
           find . -print0 | cpio --null -ov --format=newc | gzip -9 > ../iso_root/boot/initrd.img
           cd "${WORKSPACE_DIR}"
