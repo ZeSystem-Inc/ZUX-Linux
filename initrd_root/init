@@ -1,5 +1,5 @@
 #!/bin/sh
-export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin:/installer
 
 mount -t proc proc /proc
 mount -t sysfs sysfs /sys
@@ -8,7 +8,6 @@ mkdir -p /dev/pts
 mount -t devpts devpts /dev/pts
 
 ifconfig lo 127.0.0.1 up
-udhcpc -i eth0 >/dev/null 2>&1 || udhcpc -i enp0s3 >/dev/null 2>&1 || true
 
 exec 0</dev/tty1
 exec 1>/dev/tty1
@@ -16,10 +15,14 @@ exec 2>/dev/tty1
 
 clear
 
-if [ -f /installer/setup.elf ]; then
-    chmod +x /installer/setup.elf
-    /installer/setup.elf
-else
-    echo "HATA: Kurulum dosyasi bulunamadi!"
-    exec /bin/sh
-fi
+mkdir -p /bin
+ln -sf /installer/setup.elf /bin/setup 2>/dev/null || true
+
+echo "=================================================="
+echo "               ZUX OS PREINSTALLATION             "
+echo "=================================================="
+echo ""
+echo "Kurulumu baslatmak icin 'setup' yazip ENTER'a basin."
+echo ""
+
+exec /bin/sh
